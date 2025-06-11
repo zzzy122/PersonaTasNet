@@ -1,35 +1,63 @@
-# 个性化语音增强系统：基于说话人嵌入与时域卷积网络
+# Speaker-Conditional Conv-TasNet for Personalized Speech Enhancement
 
-## 项目简介
+## Overview
 
-本项目实现了一套基于**说话人嵌入（d-vector）和时域卷积网络（Conv-TasNet）**的个性化语音增强系统。该系统能够在混合语音中精准提取目标说话人的语音，广泛适用于智能设备、远程通信、助听等场景。
+This project implements a **personalized speech enhancement system** based on **speaker embeddings (d-vector) and temporal convolutional networks (Conv-TasNet)**. The system can accurately extract target speaker's voice from mixed audio, making it suitable for smart devices, remote communication, hearing aids, and other applications.
 
-**核心创新：**
-- 直接将说话人d-vector嵌入与时域分离主干（Conv-TasNet）结合，避免频域方法的信息损失。
-- 支持多目标损失函数（如SI-SNR+余弦相似度），提升信号保真与说话人一致性。
-- 端到端训练，兼容大规模数据和GPU加速。
+**Key Innovations:**
+- Direct integration of speaker d-vectors with time-domain separation backbone (Conv-TasNet), avoiding information loss from frequency-domain methods
+- Multi-objective loss function support (SI-SNR + cosine similarity) for improved signal fidelity and speaker consistency
+- End-to-end training with support for large-scale data and GPU acceleration
 
 ---
 
-## 目录结构
+## Architecture Overview
+
+The system consists of three main components:
+
+1. **Encoder**: Converts time-domain waveform to feature representation using 1D convolution
+2. **Speaker-Conditional Separator**: Fuses d-vector with mixed audio features and applies temporal convolution network for separation
+3. **Decoder**: Reconstructs separated waveforms using overlap-add method
+
+```
+Mixed Audio [M,T] → Encoder → Feature Fusion ← D-vector [M,256]
+                                    ↓
+                             Temporal ConvNet
+                                    ↓
+                           Mask Generation → Decoder → Separated Audio [M,C,T]
+```
+
+---
+
+## Project Structure
 
 ```
 .
-├── config/           # 配置文件（模型、训练、数据等参数）
-├── datasets/         # 数据加载与预处理
-├── model/            # 说话人嵌入与主分离模型
-├── tasnet_model/     # Conv-TasNet核心结构与工具
-├── utils/            # 音频处理、损失函数、训练辅助等
-├── generator.py      # 训练/测试数据生成脚本
-├── trainer.py        # 训练主程序
-├── inference.py      # 推理/评估主程序
-├── requirements.txt  # 依赖包列表
-└── README.md         # 项目说明（本文件）
+├── config/                 # Configuration files (model, training, data parameters)
+│   ├── default.yaml       # Base configuration template
+│   └── default_train.yaml # Training configuration with data paths
+├── datasets/               # Data loading and preprocessing
+│   └── dataloader.py      # Main data loader implementation
+├── model/                  # Speaker embedding and separation models
+│   ├── embedder.py        # Speaker d-vector extraction (LSTM-based)
+│   └── model.py           # Main separation model definitions
+├── tasnet_model/          # Conv-TasNet core architecture
+│   ├── conv_tasnet.py     # Main Conv-TasNet implementation
+│   └── tasnet_utils.py    # Utility functions for TasNet
+├── utils/                 # Audio processing, loss functions, training utilities
+│   ├── train.py          # Main training script
+│   ├── audio.py          # Audio processing utilities
+│   └── evaluation.py     # Evaluation metrics
+├── generator.py           # Training/testing data generation script
+├── trainer.py            # Training main program
+├── inference.py          # Inference/evaluation main program
+├── embedder.pt           # Pre-trained speaker embedding model
+└── README.md             # Project documentation
 ```
 
 ---
 
-## 环境依赖
+## Requirements
 
 - Python 3.8+
 - PyTorch 1.7+
@@ -37,85 +65,194 @@
 - soundfile
 - numpy
 - tqdm
-- 其他依赖见 requirements.txt
+- yaml
+- scipy
 
-安装依赖：
+Install dependencies:
 ```bash
 pip install -r requirements.txt
 ```
 
 ---
 
-## 数据准备
+## Data Preparation
 
-1. **下载语音数据集**  
-   推荐使用 [LibriSpeech](http://www.openslr.org/12/) 或 [VoxCeleb2](http://www.robots.ox.ac.uk/~vgg/data/voxceleb/vox2.html)。
+### 1. Download Speech Dataset
+Recommended datasets: [LibriSpeech](http://www.openslr.org/12/) or [VoxCeleb2](http://www.robots.ox.ac.uk/~vgg/data/voxceleb/vox2.html)
 
-2. **音频重采样与归一化**  
-   ```bash
-   sh utils/normalize-resample.sh
-   ```
-
-3. **生成训练/测试样本**  
-   ```bash
-   python generator.py -c config/default.yaml -d [数据集目录] -o [输出目录] -p [进程数]
-   ```
-
----
-
-## 训练流程
-
-1. **训练说话人嵌入模型（d-vector）**  
-   可使用预训练模型，或用VoxCeleb2等数据自行训练。
-
-2. **训练分离模型**  
-   ```bash
-   python trainer.py -c config/default.yaml -e [embedder模型路径]
-   ```
-
-   - 支持多目标损失（SI-SNR + 余弦相似度），可在 config 中调整权重。
-   - 支持断点续训、TensorBoard可视化。
-
----
-
-## 推理与评估
-
+### 2. Audio Normalization and Resampling
 ```bash
-python inference.py -c config/default.yaml -e [embedder模型路径] --checkpoint_path [分离模型权重] -m [混合音频] -r [参考音频] -o [输出目录]
+sh utils/normalize-resample.sh
 ```
 
-- 支持批量推理和单条音频分离。
-- 评估指标包括 SI-SNR、SDR、PESQ 等。
+### 3. Generate Training/Testing Samples
+```bash
+python generator.py -c config/default_train.yaml -d [dataset_directory] -o [output_directory] -p [num_processes]
+```
+
+The data generation process creates:
+- `mixed.wav`: Mixed audio (2 speakers)
+- `target.wav`: Target speaker audio
+- `dvec.txt`: Reference audio path for d-vector extraction
+- `*.pt`: Pre-computed spectral features (optional)
 
 ---
 
-## 主要模块说明
+## Training
 
-- **model/embedder.py**：说话人d-vector嵌入提取（LSTM结构）
-- **model/model.py**：主分离模型（VoiceFilter/Conv-TasNet），实现d-vector条件建模
-- **tasnet_model/conv_tasnet.py**：时域分离主干（编码-分离-解码）
-- **utils/uitls.py**：SI-SNR、余弦相似度等损失函数实现
-- **datasets/dataloader.py**：数据加载与批处理
+### 1. Speaker Embedding Model
+The project uses a pre-trained speaker embedding model (`embedder.pt`). You can also train your own using VoxCeleb2 or similar datasets.
+
+### 2. Train Separation Model
+```bash
+python trainer.py -c config/default_train.yaml -e [embedder_model_path]
+```
+
+**Training Features:**
+- Multi-objective loss (SI-SNR + cosine similarity) with adjustable weights
+- Checkpoint saving and resuming
+- TensorBoard visualization support
+- Mixed precision training (optional)
+
+**Key Training Parameters:**
+- `N=256`: Number of encoder filters
+- `L=40`: Filter length
+- `B=128`: Bottleneck channels
+- `H=512`: Convolution block channels
+- `R=3`: Number of repeats
+- `X=8`: Blocks per repeat
 
 ---
 
-## 损失函数与优化
+## Inference and Evaluation
 
-- **多目标损失**：SI-SNR损失 + 余弦相似度损失（可加权组合）
-- **优化器**：Adam 或 AdaBound
-- **训练目标**：同时提升信号保真度和说话人特征一致性
+### Single Audio Inference
+```bash
+python inference.py -c config/default_train.yaml -e [embedder_model_path] --checkpoint_path [separation_model_weights] -m [mixed_audio] -r [reference_audio] -o [output_directory]
+```
+
+### Batch Inference
+```bash
+python inference.py -c config/default_train.yaml -e [embedder_model_path] --checkpoint_path [separation_model_weights] --test_dir [test_data_directory] -o [output_directory]
+```
+
+**Evaluation Metrics:**
+- SI-SNR (Scale-Invariant Signal-to-Noise Ratio)
+- SDR (Signal-to-Distortion Ratio)
+- PESQ (Perceptual Evaluation of Speech Quality)
+- STOI (Short-Time Objective Intelligibility)
 
 ---
 
-## 参考与致谢
+## Key Modules
+
+### Core Models
+- **`model/embedder.py`**: Speaker d-vector embedding extraction (LSTM-based architecture)
+- **`tasnet_model/conv_tasnet.py`**: Time-domain separation backbone (encoder-separator-decoder)
+- **`datasets/dataloader.py`**: Data loading with d-vector integration
+
+### Loss Functions
+- **SI-SNR Loss**: Scale-invariant signal-to-noise ratio for separation quality
+- **Cosine Similarity Loss**: Speaker embedding consistency between reference and separated audio
+- **Combined Loss**: Weighted combination of above losses
+
+### Training Infrastructure
+- **`utils/train.py`**: Main training loop with mixed precision support
+- **`trainer.py`**: Training coordinator with configuration management
+- **`utils/evaluation.py`**: Comprehensive evaluation metrics
+
+---
+
+## Model Architecture Details
+
+### Speaker-Conditional Fusion
+The d-vector is integrated into the separation process through feature-level fusion:
+
+```python
+# D-vector expansion and fusion
+dvec = dvec.unsqueeze(2).expand(M, -1, K)  # [M, 256] → [M, 256, K]
+mixture_w = mixture_w + dvec  # Element-wise addition
+```
+
+### Temporal Convolution Network
+- **Encoder**: 1D convolution with 50% overlap (kernel=40, stride=20)
+- **TCN Blocks**: Dilated convolutions with exponentially increasing dilation factors
+- **Decoder**: Linear transformation with overlap-add reconstruction
+
+---
+
+## Performance Optimization
+
+### Training Tips
+1. **Data Augmentation**: Use different speaker combinations and noise levels
+2. **Learning Rate Scheduling**: Cosine annealing or step decay
+3. **Mixed Precision**: Enable for faster training with minimal quality loss
+4. **Gradient Clipping**: Prevent gradient explosion in deep networks
+
+### Inference Optimization
+1. **Batch Processing**: Process multiple files simultaneously
+2. **GPU Utilization**: Use CUDA for faster inference
+3. **Memory Management**: Process long audio files in chunks
+
+---
+
+## Configuration
+
+The system uses YAML configuration files for easy parameter management:
+
+```yaml
+# Model parameters
+model:
+  N: 256          # Encoder filters
+  L: 40           # Filter length
+  B: 128          # Bottleneck channels
+  H: 512          # Conv block channels
+  P: 3            # Kernel size
+  X: 8            # Blocks per repeat
+  R: 3            # Number of repeats
+  C: 2            # Number of speakers
+
+# Training parameters
+training:
+  batch_size: 4
+  learning_rate: 1e-3
+  num_epochs: 100
+  loss_weights:
+    sisnr: 1.0
+    cosine: 0.1
+```
+
+---
+
+## References
 
 - [VoiceFilter: Targeted Voice Separation by Speaker-Conditioned Spectrogram Masking](https://arxiv.org/abs/1810.04826)
 - [Conv-TasNet: Surpassing Ideal Time–Frequency Masking for Speech Separation](https://arxiv.org/abs/1809.07454)
-- 本项目部分代码参考自上述论文及其开源实现。
+- [Speaker-independent Speech Separation with Deep Attractor Network](https://arxiv.org/abs/1707.03634)
 
 ---
 
-## 联系方式
+## License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
+
+---
+
+## Contributing
+
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/new-feature`)
+3. Commit your changes (`git commit -am 'Add new feature'`)
+4. Push to the branch (`git push origin feature/new-feature`)
+5. Create a Pull Request
+
+---
+
+## Acknowledgments
+
+- This project is based on the Conv-TasNet and VoiceFilter architectures
+- Speaker embedding model adapted from various deep speaker recognition works
+- Thanks to the LibriSpeech and VoxCeleb teams for providing high-quality datasets
 
 
 ---
